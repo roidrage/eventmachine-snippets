@@ -4,37 +4,37 @@ require 'amqp'
 require 'mq'
 require 'mq/logger'
 require 'time'
+require 'logger'
 
 class LogAggregator
-  @@format = "[%s] %s (identity: %s): %s\n"
-  
   def initialize
-    @log = File.new("/tmp/nanite.log", "a")
+    @log = Logger.new("/tmp/nanite.log")
+    @log.formatter = Formatter.new
   end
   
   def listen
     MQ.queue('logging').bind(MQ.fanout("logging")).subscribe do |message|
-      log Marshal.load(message)
+      @log.send(message[:severity], message)
     end
   end
-  
-  def formatted(message)
-    @@format % [message[:timestamp].rfc2822(), message[:severity].to_s.upcase, message[:identity], msg2str(message[:msg])]
-  end
-  
-  def log(message)
-    @log.write(formatted(message))
-  end
 
-  def msg2str(msg)
-    case msg
-    when ::String
-      msg
-    when ::Hash
-      "#{ msg[:message] } (#{ msg[:name] })\n" <<
-        (msg[:backtrace] || []).join("\n")
-    else
-      msg.inspect
+  class Formatter < Logger::Formatter
+    @@format = "[%s] %s (identity: %s): %s\n"
+    
+    def call(severity, time, progname, message)
+      @@format % [message[:timestamp].rfc2822(), severity, message[:identity], msg2str(message[:msg])]
+    end
+    
+    def msg2str(msg)
+      case msg
+      when ::String
+        msg
+      when ::Hash
+        "#{ msg[:message] } (#{ msg[:name] })\n" <<
+          (msg[:backtrace] || []).join("\n")
+      else
+        msg.inspect
+      end
     end
   end
   
