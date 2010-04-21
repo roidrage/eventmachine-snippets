@@ -2,11 +2,12 @@ require 'rubygems'
 require 'eventmachine'
 require 'em-redis'
 require 'em-http'
-require 'fiber'
 
 $url_list = 'em:urls'
 
-$urls = %w{http://www.heise.de/ http://www.google.de} * 20
+$urls = %w{http://localhost/ http://www.google.de/} * 200
+
+$count = 0
 
 class UrlMonitor
   def initialize
@@ -40,11 +41,12 @@ class UrlMonitor
   end
   
   def watch(url)
-    http = EventMachine::HttpRequest.new(url).get :timeout => 10
+    http = EventMachine::HttpRequest.new(url).get :timeout => 20
     http.errback {
     }
 
     http.callback {
+      EM.next_tick {$count+=1}
       warn(url, http) if http.response_header.status >= 400
     }
   end
@@ -54,7 +56,8 @@ EM.kqueue
 EM.run {
   UrlMonitor.new
 
-  EM.add_timer(20) {
+  EM.add_timer(40) {
+    puts "Plowed through #{$count} urls"
     EM.stop
   }
 }
