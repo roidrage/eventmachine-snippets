@@ -121,7 +121,7 @@ class ProcessMonitor
   end
 
   def set_traps
-    trap(:INT) do
+    at_exit do
       puts "Cleaning up child processes"
       self.processes.each do |pid, process|
         begin
