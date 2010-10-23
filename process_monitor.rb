@@ -32,6 +32,8 @@ class SingleProcess
     Process.waitpid(@pid)
     @connection = nil
     fork
+    puts "Respawning as #{@pid}"
+    @pid
   end
 
   def setup
@@ -107,23 +109,30 @@ class ProcessMonitor
   end
 
   def start_monitor
-    EM.add_periodic_timer(timeout) {
-      @processes.each do |pid, process|
-        if process[:last_seen] < Time.now.utc - timeout
-          puts "#{pid} timed out"
-          @processes.delete(pid) 
-          puts "Respawning"
-          pid = process[:process].refork
-          @processes[pid] = {:process => process[:process], :last_seen => Time.now.utc}
-        end
+    EM.add_periodic_timer(timeout) do
+      check_processes
+    end
+  end
+
+  def check_processes
+    @processes.each do |pid, process|
+      if process[:last_seen] < Time.now.utc - timeout
+        puts "Process #{pid} timed out"
+        respawn(pid, process[:process])
       end
-    }
+    end
+  end
+
+  def respawn(pid, process)
+    @processes.delete(pid) 
+    pid = process.refork
+    @processes[pid] = {:process => process, :last_seen => Time.now.utc}
   end
 
   def set_traps
     at_exit do
       puts "Cleaning up child processes"
-      self.processes.each do |pid, process|
+      processes.each do |pid, process|
         begin
           Process.kill(:TERM, pid)
           Process.waitpid(pid)
