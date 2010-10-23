@@ -21,6 +21,7 @@ class SingleProcess
   end
 
   def fork
+    at_exit {exit!}
     @pid = EM.fork_reactor do
       $0 = "(child)\0"
       setup
