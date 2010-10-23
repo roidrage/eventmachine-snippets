@@ -1,9 +1,11 @@
+#!/usr/bin/env ruby
 require 'rubygems'
 require 'eventmachine'
 require 'json'
 
 class Runner
   def initialize(options = {})
+
   end
 
   def run
@@ -19,11 +21,17 @@ class SingleProcess
   end
 
   def fork
-    EM.fork_reactor do
-      $0 = "<child>\0"
+    @pid = EM.fork_reactor do
+      $0 = "(child)\0"
       setup
       run
     end
+  end
+
+  def refork
+    Process.waitpid(@pid)
+    @connection = nil
+    fork
   end
 
   def setup
@@ -56,20 +64,34 @@ class ProcessMonitor
     end
   end
 
+  attr_accessor :timeout, :processes
+
   def self.run
     new.run
+  end
+
+  def initialize
+    @processes = {}
+    @timeout = 10
   end
 
   def run
     start_server
     start_processes
+    start_monitor
+    set_traps
   end
 
   def receive_message(msg)
-    puts "received message: #{msg.inspect}"
+    message, arg = msg
+    if message == :heartbeat
+      puts "Ping from #{arg}"
+      @processes[arg][:last_seen] = Time.now.utc
+    end
   end
 
   def start_server
+    $0 = "(master)"
     @server = EM.start_server('127.0.0.1', 0, ProcessMonitor::Server) do |c|
       c.owner = self
     end
@@ -77,7 +99,41 @@ class ProcessMonitor
   end
 
   def start_processes
-    SingleProcess.new(@port, Runner, {}).run
+    [Runner, Runner, Runner, Runner, Runner].each do |runnable|
+      process = SingleProcess.new(@port, runnable, {})
+      pid = process.fork
+      @processes[pid] = {:process => process, :last_seen => Time.now.utc}
+    end
+  end
+
+  def start_monitor
+    EM.add_periodic_timer(timeout) {
+      @processes.each do |pid, process|
+        if process[:last_seen] < Time.now.utc - timeout
+          puts "#{pid} timed out"
+          @processes.delete(pid) 
+          puts "Respawning"
+          pid = process[:process].refork
+          @processes[pid] = {:process => process[:process], :last_seen => Time.now.utc}
+        end
+      end
+    }
+  end
+
+  def set_traps
+    trap(:INT) do
+      puts "Cleaning up child processes"
+      self.processes.each do |pid, process|
+        begin
+          Process.kill(:TERM, pid)
+          Process.waitpid(pid)
+        rescue Errno::ECHILD, Errno::ESRCH
+        end
+      end
+      puts "Done..."
+      exit
+    end
+
   end
 end
 
