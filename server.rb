@@ -9,7 +9,7 @@ class SingleProcess
 
   def run
     EM.fork_reactor do
-      $0 = "nanite-mapper <offline>"
+      $0 = "<child>"
       @connection = EM.connect('127.0.0.1', @port) do |c|
         class << c
           include EM::P::ObjectProtocol
