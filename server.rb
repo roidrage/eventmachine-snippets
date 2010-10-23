@@ -20,7 +20,7 @@ class SingleProcess
 
   def fork
     EM.fork_reactor do
-      $0 = "<child>"
+      $0 = "<child>\0"
       setup
       run
     end
