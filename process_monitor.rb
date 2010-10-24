@@ -21,6 +21,10 @@ class SingleProcess
   end
 
   def fork
+    trap(:HUP) do
+      @timer.cancel
+    end
+
     at_exit {exit!}
     @pid = EM.fork_reactor do
       $0 = "(child)\0"
@@ -30,7 +34,7 @@ class SingleProcess
   end
 
   def refork
-    Process.waitpid(@pid)
+    Process.waitpid(@pid, Process::WNOHANG) rescue Errno::ECHILD
     @connection = nil
     fork
     puts "Respawning as #{@pid}"
@@ -44,7 +48,7 @@ class SingleProcess
       end
     end
 
-    EM.add_periodic_timer(2) do
+    @timer = EM.add_periodic_timer(2) do
       if @connection.error?
         @connection.reconnect('127.0.0.1', @port)
       end
@@ -67,7 +71,7 @@ class ProcessMonitor
     end
   end
 
-  attr_accessor :timeout, :processes
+  attr_accessor :timeout, :processes, :shutting_down
 
   def self.run
     new.run
@@ -119,24 +123,24 @@ class ProcessMonitor
     @processes.each do |pid, process|
       if process[:last_seen] < Time.now.utc - timeout
         puts "Process #{pid} timed out"
-        respawn(pid, process[:process])
+        respawn(pid)
       end
     end
   end
 
-  def respawn(pid, process)
-    @processes.delete(pid) 
+  def respawn(pid)
+    process = @processes.delete(pid)[:process]
     pid = process.refork
     @processes[pid] = {:process => process, :last_seen => Time.now.utc}
   end
 
   def set_traps
     at_exit do
+      self.shutting_down = true
       puts "Cleaning up child processes"
       processes.each do |pid, process|
         begin
           Process.kill(:TERM, pid)
-          Process.waitpid(pid)
         rescue Errno::ECHILD, Errno::ESRCH
         end
       end
@@ -144,6 +148,18 @@ class ProcessMonitor
       exit
     end
 
+    trap(:CLD) do
+      if !shutting_down
+        begin
+          pid = Process.wait
+          puts "Child #{pid} died"
+          respawn(pid)
+        rescue Errno::ECHILD
+          puts $!.backtrace.join("\n")
+          puts 'echild'
+        end
+      end
+    end
   end
 end
 
