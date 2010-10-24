@@ -71,7 +71,7 @@ class ProcessMonitor
     end
   end
 
-  attr_accessor :timeout, :processes, :shutting_down
+  attr_accessor :timeout, :processes
 
   def self.run
     new.run
@@ -136,7 +136,6 @@ class ProcessMonitor
 
   def set_traps
     at_exit do
-      self.shutting_down = true
       puts "Cleaning up child processes"
       processes.each do |pid, process|
         begin
@@ -146,19 +145,6 @@ class ProcessMonitor
       end
       puts "Done..."
       exit
-    end
-
-    trap(:CLD) do
-      if !shutting_down
-        begin
-          pid = Process.wait
-          puts "Child #{pid} died"
-          respawn(pid)
-        rescue Errno::ECHILD
-          puts $!.backtrace.join("\n")
-          puts 'echild'
-        end
-      end
     end
   end
 end
